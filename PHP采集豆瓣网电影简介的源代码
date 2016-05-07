@@ -1,0 +1,198 @@
+<?php
+//搜索链接
+function search_link($moviename)
+{
+        //构造url，其中max-results可根据需要更改
+        $urlString = 'http://api.douban.com/movie/subjects?q='.$moviename.'&start-index=1&max-results=1&alt=json';
+		//print_r($urlString);
+		$urlString=mb_convert_encoding($urlString, "UTF-8", "GBK");//将Url转换为utf-8编码
+        $r = new HttpRequest($urlString,HttpRequest::METH_GET);//请求
+        $response = $r->send();
+        $result = $r->getResponseBody();
+        $obj = json_decode($result);//解析成json格式
+		if($entry = @$obj->{'entry'}){
+				//搜索链接并存在数组中返回
+				for($i = 0;$i<sizeof($entry);$i++){
+						$link=$entry[$i]->{'link'};
+						for($j = 0;$j<sizeof($link);$j++){
+							  $arr = (array)$link[$j];
+							  $key = array_search("self",$arr);
+							  if($key){									//判断key是否存在
+								  $str = $arr["@href"].'?alt=json'; //构造返回链接的格式
+								  break;
+							  }
+						}
+						$link_array[] = $str;
+				}
+				return $link_array;//返回链接
+		} else
+				echo"Not Found!";
+}
+//查询链接并将各变量放入$GLOBAL 数组
+function get_info($urlString)
+{
+        $r = new HttpRequest($urlString,HttpRequest::METH_GET);
+        $response = $r->send();
+        $result = $r->getResponseBody();
+		//if..else.. 判断打开链接是否为空
+        if ($obj = json_decode($result)){
+		    //将影片的信息放在全局数组中
+			$title = $obj->{'title'};
+			$author = $obj->{'author'};
+			$summary = $obj->{'summary'};
+			$ID=$obj->{'id'};
+			$link = $obj->{'link'};
+			$gd = (array)$obj->{'gd:rating'};
+			$db_array = array();
+			$db = $obj->{'db:attribute'};
+			//将db:atribute中的值放进数组
+			foreach ($db as $value){
+				$value_array = (array)($value);
+				$v = $value_array["@name"];
+				$k = $value_array["$t"];
+				if (array_key_exists("@lang",$value_array)){
+				    $lang=$value_array["@lang"];
+					$k=$k.'['.$lang.']';
+				}
+			    $db_array[$v][]=$k;
+			}
+            //设定对应数组的键值
+			@$db_array_key = array('【影片原名】','【别    名】','【导    演】','【编    剧】','【官方网站】','【IMDB链接】','【出品年代】',
+			                   '【国    家】','【电影类型】','【上映日期】','【放映长度】','【集    数】','【语    言】','【演    员】');
+			@$db_array_value = array($db_array["title"],$db_array["aka"],$db_array["director"],$db_array["writer"],$db_array["website"],
+			                     $db_array["imdb"],$db_array["year"],$db_array["country"],$db_array["movie_type"],$db_array["pubdate"],
+								 $db_array["movie_duration"],$db_array["episodes"],$db_array["language"],$db_array["cast"]);
+			@$db_array = array_combine($db_array_key,$db_array_value);
+	    }   else{
+		        echo "Empty link!";
+		}
+		$info=array("title"=>$title,"author"=>$author,"summary"=>$summary,"ID"=>$ID,"link"=>$link,"gd"=>$gd,"db_array"=>$db_array);
+		return $info;
+}
+//将影片信息写入文件
+function write_info($fi,$info)
+{
+			//fwrite($fi, "******");写入文件
+			fwrite($fi, "【影片原名】");
+			foreach ($info["title"] as $k=>$v)
+        			fwrite($fi,"$vrn");
+			fwrite($fi,"rn");
+			fwrite($fi,"【出 品 人】");
+			  foreach ($info["author"] as $value)
+				  foreach ($value as $key)
+				    foreach ($key as $v) {
+				      fwrite($fi,"$vrn");
+				    }
+			fwrite($fi,"rn");
+			//db:attribute
+			foreach ($info["db_array"] as $key=>$value){
+			    if(count($value)){
+						fwrite($fi,$key);
+						if($value==$info["db_array"]['【演    员】']){
+							foreach($value as $k=>$v)
+								fwrite($fi,"$vrn            ");
+						}   else{
+								foreach($value as $k=>$v)
+									fwrite($fi,"$v  ");
+								fwrite($fi,"rn");
+						}
+				}
+			}
+			fwrite($fi,"rn");
+			//影片简介
+			fwrite($fi, "【简    介】rn");
+			foreach ($info["summary"] as $k=>$v){
+				fwrite($fi,"   $v rn");
+			}
+            fwrite($fi,"rn");
+			//ID
+			fwrite($fi,"【I      D】");
+			foreach ($info["ID"] as $k=>$v){
+                fwrite($fi,$v);
+			}
+			fwrite($fi,"rn");
+			//链接
+			fwrite($fi,"【链    接】rn");
+			foreach ($info["link"] as $value){
+				foreach ($value as $k=>$v){
+				    fwrite($fi, "  $v  ");
+				}
+				fwrite($fi,"rn");
+			}
+			fwrite($fi,"rn");
+			//评论
+			fwrite($fi,'【评    论】');
+            fwrite($fi,$info["gd"]["@numRaters"]);
+			fwrite($fi,"rn");
+			fwrite($fi,'【最高】');  fwrite($fi,$info["gd"]["@max"]);
+			fwrite($fi,"  【最低】");fwrite($fi,$info["gd"]["@min"]);
+			fwrite($fi,'  【平均】');fwrite($fi, $info["gd"]["@average"]);
+			fwrite($fi,"rn");
+}
+//在指定的文件夹中寻找电影并返回电影名
+function find_dir($dir)
+{
+    if(is_dir($dir)){                      		//判断所给路径名是否为目录
+		if($fdir=opendir($dir)){				//打开目录
+			while(false!==($file=readdir($fdir))){				//遍历目录中的文件
+				if ($file != "." && $file != "..")
+				    $files[]=$file;					//将寻找到的文件放入数组并返回
+			}
+			closedir($fdir);
+			print_r($file);
+			return $files;
+	    }
+	}
+}
+//将生成的txt文件放在指定的目录下
+function write_to_dir($dir,$moviename)
+{
+    if (is_dir($dir)){                                             			//判断所给路径名是否为目录
+	    if($fdir=opendir($dir)){           									//打开目录
+			while(false!==($file=readdir($fdir))){  						//遍历目录中的文件
+				if ($file != '.' && $file != '..') {
+					$dirname=$dir.'\'.$file;
+					if (is_dir($dirname)&&$file==$moviename) {       			//寻找指定的文件夹
+						$filename=$dirname.'\'.$moviename.'.txt';
+                        //if(!file_exists($filename)){
+							if($fi=fopen($filename,'w+')){                       //打开指定文件，若不存在，建立文件并返回
+								closedir($fdir);
+								return $fi;
+							}else
+								echo"Fail to Open file!";
+						//}
+					} else
+							echo "Dir Not Exists!";
+				}
+			}
+		} else {
+						echo 'Fail to Open!';
+						return;
+		}
+	}   else {
+	            echo 'Directory Not Exists!';
+				return;
+	}
+}
+$dir = 'E:film';
+if($movienames = @find_dir($dir)){								//在指定目录中获得电影名，进行搜索
+	foreach ($movienames as $key=>$moviename){
+		if($link_info = search_link($moviename)){
+			//搜索影片名
+			if ($fi=write_to_dir($dir,$moviename)){					//写入指定文件夹
+				fwrite($fi,"<Resources>rn");
+				fwrite($fi,'<MesageBody>');
+				fwrite($fi,"rnrnrn".'※※※※※※※※※※※※※※※※※※※※※　影片信息　※※※※※※※※※※※※※※※※※※※※※'."rn");
+				foreach ($link_info as $k){
+					$info=get_info($k);								//获取链接信息
+					write_info($fi,$info);							//在txt文件中写入信息
+					fwrite($fi,"*************************************************************************************************rn");
+				}
+				fclose($fi);//写入完成，关闭文件
+			}
+		} else
+		    echo "Empty!";
+	}
+}   else
+        echo "Movies Not Exists!";
+?>
